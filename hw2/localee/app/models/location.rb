@@ -18,7 +18,7 @@ class Location < ActiveRecord::Base
     }
   end
   
-  def to_hash_with_follow(self, user_id)
+  def to_hash_with_follow(user_id)
     {
       :id => self.id,
       :name => self.name,
