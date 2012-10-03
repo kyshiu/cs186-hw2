@@ -128,7 +128,7 @@ class AppQuery
     validLocations = validLocations[0..49]
     
     validLocations.each do|loc|
-      @locations << loc.to_hash_with_follows(user_id)
+      @locations << loc.to_hash_with_follow(user_id)
     end
   end
 
