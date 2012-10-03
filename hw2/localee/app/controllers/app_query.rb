@@ -192,6 +192,7 @@ class AppQuery
   # Assign: None
   # Output: true if the creation is successful, false otherwise
   def create_post(user_id, post_hash={})
+    post_hash[:user_id] = user_id
     p = Post.new(post_hash)
     creationStatus = p.save
 
