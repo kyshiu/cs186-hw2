@@ -29,6 +29,10 @@ class AppQuery
   # Output: None
   def get_following_locations(user_id)
     @following_locations = []
+    u = User.find(user_id)
+    u.locations.each do|loc|
+      @following_locations << loc.to_hash
+    end
   end
 
   # Purpose: Show the information and all posts for a given location
@@ -56,6 +60,15 @@ class AppQuery
   def get_posts_for_location(location_id)
     @location = {}
     @posts = []
+
+    l = Location.find(location_id)
+    @location = l.to_hash
+
+    l.posts.each do|post|
+      @posts << post.to_hash
+    end
+
+    @posts = @posts.sort_by { |k| k["created_at"] }.reverse
   end
 
   # Purpose: Show the current user's stream of posts from all the locations the user follows
