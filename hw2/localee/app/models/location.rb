@@ -17,4 +17,14 @@ class Location < ActiveRecord::Base
       :longitude => self.longitude
     }
   end
+  
+  def to_hash_with_follows(user_id)
+    {
+      :id => self.id,
+      :name => self.name,
+      :latitude => self.latitude,
+      :longitude => self.longitude
+      :follows => User.find(user_id).locations.exists?("id == ?", self.id)
+    }
+  end
 end
