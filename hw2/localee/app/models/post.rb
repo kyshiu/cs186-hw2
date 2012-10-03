@@ -10,9 +10,9 @@ class Post < ActiveRecord::Base
   def to_hash
     {
       :author_id => self.user_id,
-      :author => User.find(self.user_id).name
+      :author => User.find(self.user_id).name,
       :text => self.text,
-      :created_at => self.created_at
+      :created_at => self.created_at,
       :location => Location.find(self.location_id).to_hash
     }
   end
