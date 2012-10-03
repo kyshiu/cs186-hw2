@@ -159,7 +159,7 @@ class AppQuery
   #       we may call it multiple times to test your schema/models.
   #       Your schema/models/code should prevent corruption of the database.
   def follow_location(user_id, location_id)
-    if !User.find(user_id).locations.exists?("id == " + location_id.to_s)
+    if !(User.find(user_id).locations.exists?("id == " + location_id.to_s))
       User.find(user_id).locations << Location.find(location_id)
     end
   end
