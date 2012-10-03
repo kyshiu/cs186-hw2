@@ -192,7 +192,16 @@ class AppQuery
   # Assign: None
   # Output: true if the creation is successful, false otherwise
   def create_post(user_id, post_hash={})
-    false
+    p = Post.new(post_hash)
+    creationStatus = p.save
+    
+    u = User.find(user_id)
+    
+    if creationStatus
+      u.posts << p
+    end
+    
+    creationStatus
   end
 
   # Purpose: Create a new user
@@ -232,6 +241,10 @@ class AppQuery
   # Output: None
   def get_all_posts
     @posts = []
+    
+    Post.all.each do|post|
+      @posts << post.to_hash
+    end
   end
 
   # Purpose: Get all the users
@@ -242,10 +255,14 @@ class AppQuery
   #            Each hash should include:
   #     * :id - id of the user
   #     * :name - name of the user
-  #     * :email - email of th user
+  #     * :email - email of the user
   # Output: None
   def get_all_users
     @users = []
+    
+    User.all.each do|user|
+      @users << user.to_hash
+    end
   end
 
   # Purpose: Get all the locations
@@ -261,6 +278,10 @@ class AppQuery
   # Output: None
   def get_all_locations
     @locations = []
+    
+    Location.all.each do|loc|
+      @locations << loc.to_hash
+    end
   end
 
   # Retrieve the top 5 users who created the most posts.
