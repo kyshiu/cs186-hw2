@@ -145,7 +145,8 @@ class AppQuery
   # Assign: None
   # Output: true if the creation is successful, false otherwise
   def create_location(location_hash={})
-    false
+    l = Location.new(location_hash)
+    l.save
   end
 
   # Purpose: The current user follows a location
@@ -158,6 +159,9 @@ class AppQuery
   #       we may call it multiple times to test your schema/models.
   #       Your schema/models/code should prevent corruption of the database.
   def follow_location(user_id, location_id)
+    if !User.find(user_id).locations.exists?("id == ?", location_id)
+      User.find(user_id).locations << Location.find(location_id)
+    end
   end
 
   # Purpose: The current user unfollows a location
@@ -170,6 +174,9 @@ class AppQuery
   #       we may call it multiple times to test your schema/models.
   #       Your schema/models/code should prevent corruption of the database.
   def unfollow_location(user_id, location_id)
+    if User.find(user_id).locations.exists?("id == ?", location_id)
+      User.find(user_id).locations.delete(Location.find(location_id))
+    end
   end
 
   # Purpose: The current user creates a post to a given location
