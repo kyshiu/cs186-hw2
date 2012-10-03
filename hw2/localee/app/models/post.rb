@@ -3,6 +3,10 @@ class Post < ActiveRecord::Base
   belongs_to :user
   belongs_to :location
   
+  # Validations
+  validates :user_id, :presence => true
+  validates :location_id, :presence => true
+  
   def to_hash
     {
       :id => self.id,
