@@ -3,7 +3,7 @@ class Location < ActiveRecord::Base
 
   has_and_belongs_to_many :users
   has_many :posts
-  
+
   # Validations
   validates :name, :presence => true
   validates :latitude, :presence => true
@@ -17,14 +17,14 @@ class Location < ActiveRecord::Base
       :longitude => self.longitude
     }
   end
-  
-  def to_hash_with_follow(user_id)
+
+  def to_hash_with_follow (user_id)
     {
       :id => self.id,
       :name => self.name,
       :latitude => self.latitude,
       :longitude => self.longitude,
-      :follows => User.find(user_id).locations.exists?("id == ?", self.id)
+      :follows => User.find(user_id).locations.exists?("id == "+user_id.to_s)
     }
   end
 end

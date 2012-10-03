@@ -90,17 +90,17 @@ class AppQuery
   # Output: None
   def get_stream_for_user(user_id)
     @posts = []
-    
+
     u = User.find(user_id)
     u.locations.each do|loc|
       loc.posts.each do|post|
         @posts << post.to_hash
       end
     end
-    
+
     @posts = @posts.sort_by { |k| k["created_at"] }.reverse
   end
-  
+
   # Purpose: Retrieve the locations within a GPS bounding box
   # Input:
   #   nelat - latitude of the north-east corner of the bounding box
@@ -122,11 +122,11 @@ class AppQuery
   def get_nearby_locations(nelat, nelng, swlat, swlng, user_id)
     @locations = []
     validLocations = []
-    
+
     validLocations = Location.where("latitude > ? AND latitude < ? AND longitude > ? AND longitude < ?", swlat, nelat, swlng, nelng)
     validLocations = validLocations.sort_by { |k| k["latitude"] }
     validLocations = validLocations[0..49]
-    
+
     validLocations.each do|loc|
       @locations << loc.to_hash_with_follow(user_id)
     end
@@ -194,13 +194,13 @@ class AppQuery
   def create_post(user_id, post_hash={})
     p = Post.new(post_hash)
     creationStatus = p.save
-    
+
     u = User.find(user_id)
-    
+
     if creationStatus
       u.posts << p
     end
-    
+
     creationStatus
   end
 
@@ -241,7 +241,7 @@ class AppQuery
   # Output: None
   def get_all_posts
     @posts = []
-    
+
     Post.all.each do|post|
       @posts << post.to_hash
     end
@@ -259,7 +259,7 @@ class AppQuery
   # Output: None
   def get_all_users
     @users = []
-    
+
     User.all.each do|user|
       @users << user.to_hash
     end
@@ -278,7 +278,7 @@ class AppQuery
   # Output: None
   def get_all_locations
     @locations = []
-    
+
     Location.all.each do|loc|
       @locations << loc.to_hash
     end
