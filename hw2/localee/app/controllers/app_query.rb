@@ -196,9 +196,11 @@ class AppQuery
     creationStatus = p.save
 
     u = User.find(user_id)
+    l = Location.find(post_hash[:location_id])
 
     if creationStatus
       u.posts << p
+      l.posts << p
     end
 
     creationStatus
