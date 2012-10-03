@@ -24,7 +24,7 @@ class Location < ActiveRecord::Base
       :name => self.name,
       :latitude => self.latitude,
       :longitude => self.longitude,
-      :follows => User.find(user_id).locations.exists?("id == "+user_id.to_s)
+      :follows => self.users.exists?(user_id)
     }
   end
 end

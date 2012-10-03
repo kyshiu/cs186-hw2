@@ -130,6 +130,7 @@ class AppQuery
     validLocations.each do|loc|
       @locations << loc.to_hash_with_follow(user_id)
     end
+
   end
 
   # Purpose: Create a new location
