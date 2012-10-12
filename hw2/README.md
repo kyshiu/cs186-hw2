@@ -2,9 +2,13 @@
 ### CS186, UC Berkeley, Fall 2012
 ### Points: [10% of your final grade](https://sites.google.com/a/cs.berkeley.edu/cs186-fa2012/additional-course-information)
 ### Note: *This homework is to be done in pairs!*
-### Due: Monday, 10/1, 11:59 PM (You have 4 slip days for all CS186 projects. Use them wisely)
+### Due: Wednesday, 10/3, 11:59 PM (You have 4 slip days for all CS186 projects. Use them wisely)
 
 ##Edits
+*  9/29  8:24pm - Added sample results for Part III when using `generate_fake_data` script.  Also, added clarification that the queries should not return users who create 0 posts (for query 1), or follow 0 locations (for query 3).
+*  9/26  8:28pm - The `generate_fake_data` script had a bug in it, so the code was updated. Run `git pull` to get the updated script.
+*  9/26  2:44pm - FYI: If the server crashes when trying to sign up a user, please make sure the password is at least 5 characters long.
+*  9/24 12:12pm - Extended the deadline to 10/3.
 *  9/22  9:05pm - Added documentation on how to run a [script to generate fake data](https://github.com/cs186-fa12/fa12/blob/master/hw2/README.md#generating-sample-data).
 *  9/19 10:29pm - Added a clarification on the [relationship between tables and models](https://github.com/cs186-fa12/fa12/blob/master/hw2/RailsBackground.md#relationship-between-database-tables-and-models), and a section on how [CS186 topics related to Rails](https://github.com/cs186-fa12/fa12/blob/master/hw2/RailsBackground.md#how-does-this-relate-to-cs186-concepts), to the Rails Background page.
 *  9/17  6:54pm - Clarify what a "post" is.
@@ -32,7 +36,7 @@
 You have just been hired by a hot new start-up, loCALee! Congratulations!
 
 loCALee hired you because they want you to head their development team, and need your expertise in database schema design.
-You are to implement their backend service implementation before their release on October 1, 2012.
+You are to implement their backend service implementation before their release on October 3, 2012.
 loCALee is a Twitter variant, but it is heavily focused on locations (loCALee ~ locally).
 All users post updates to locations, and all users follow locations, not other users.
 For this assignment, you will implement this functionality to open up the service to the public soon!
@@ -267,6 +271,7 @@ The methods you will have to implement are:
 
 *  `top_users_posts_sql`
   * Retrieve the top 5 users who created the most posts.
+  * Do not retrieve users who created 0 posts.
   * Retrieve at most 5 rows.
   * Returns a string of the SQL query.
   * The resulting columns names must include (but are not limited to):
@@ -281,11 +286,47 @@ The methods you will have to implement are:
      * `num_users` - number of unique users who have posted to the location
 *  `top_users_locations_sql`
   * Retrieve the top 5 users who follow the most locations, where each location has at least 2 posts
+  * Do not retrieve users who follow 0 locations.
   * Retrieve at most 5 rows.
   * Returns a string of the SQL query.
   * The resulting columns names must include (but are not limited to):
      * `name` - name of the user
      * `num_locations` - number of locations (has at least 2 posts) the user follows
+
+####Sample Results of generate_fake_data
+
+If you use the `generate_fake_data` script above, the results of the queries should look similar to these.
+
+**Note: Since the queries are only returning the top 5, the last row(s) may be different in other correct implementations because of potential ties.**
+
+```
+Top 5 Users With the Most # of Posts
+User   | # of Posts
+-------+-----------
+user5  | 26
+user12 | 22
+user1  | 20
+user9  | 20
+user4  | 19
+
+Top 5 Locations With Posts From the Most # of Unique Users (at least 2 unique users)
+Location Name | # Unique Users
+--------------+---------------
+location1     | 11
+location9     | 11
+location2     | 10
+location14    | 10
+location5     | 9
+
+Top 5 Users Following the Most # of Locations With at Least 2 Posts
+User   | # of Locations
+-------+---------------
+user8  | 6
+user2  | 5
+user9  | 5
+user14 | 5
+user11 | 4
+```
 
 ##Submission
 We will drop/erase and migrate the database before testing your implementation, so make sure that works.
