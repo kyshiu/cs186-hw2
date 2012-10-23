@@ -148,6 +148,8 @@ typedef struct sbufdesc
 	 * your buffer replacement strategies here.
 	 */
 
+  int nextLRUBuffer;
+
 } BufferDesc;
 
 #define BufferDescriptorGetBuffer(bdesc) ((bdesc)->buf_id + 1)

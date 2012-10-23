@@ -57,6 +57,9 @@ typedef struct
 	 * your buffer replacement strategies here.
 	 */
 
+  int LRUBuffer;
+  int MRUBuffer;
+
 } BufferStrategyControl;
 
 /* Pointers to shared state */
@@ -237,7 +240,21 @@ StrategyGetBuffer(BufferAccessStrategy strategy, bool *lock_held)
 		 */
 		else if (BufferReplacementPolicy == POLICY_LRU)
 		{
-			elog(ERROR, "LRU unimplemented");
+		        resultIndex = StrategyControl->LRUBuffer;
+
+			if (resultIndex == -1){
+			        // no unpinned buffers 
+			        UnlockBufHdr(buf);
+			        elog(ERROR, "no unpinned buffers available");
+			}
+
+			volatile BufferDesc *lruBuf = &BufferDescriptors[StrategyControl->LRUBuffer];
+			StrategyControl->LRUBuffer = lruBuf->nextLRUBuffer;
+
+			if (StrategyControl->LRUBuffer == -1){
+			        // Edge case where the list becomes empty.  Must update MRUBuffer as well.
+			        StrategyControl->MRUBuffer = -1;
+			}
 		}
 		else if (BufferReplacementPolicy == POLICY_MRU)
 		{
@@ -284,6 +301,23 @@ BufferUnpinned(int bufIndex)
    * StrategyControl global variable from inside this function.
    * This function was added by the GSIs.
 	 */
+	int LRUBufIndex = StrategyControl->LRUBuffer;
+	int MRUBufIndex = StrategyControl->MRUBuffer;
+	
+	// LRU and MRU Buffer has not yet been initialized
+	if (LRUBufIndex == -1 && MRUBufIndex == -1){
+	  StrategyControl->LRUBuffer = bufIndex;
+	}
+	// Normal case
+	else{
+	  volatile BufferDesc *mruBuf = 
+	    &BufferDescriptors[StrategyControl->MRUBuffer];
+	  mruBuf->nextLRUBuffer = bufIndex;
+	}
+
+	StrategyControl->MRUBuffer = bufIndex;
+	buf->nextLRUBuffer = -1;
+	
 
 	LWLockRelease(BufFreelistLock);
 }
@@ -418,6 +452,8 @@ StrategyInitialize(bool init)
 		StrategyControl->numBufferAllocs = 0;
 
 		/* CS186 TODO: Initialize any data you added to StrategyControlData here */
+		StrategyControl->LRUBuffer = -1;
+		StrategyControl->MRUBuffer = -1;
 	}
 	else
 		Assert(!init);
