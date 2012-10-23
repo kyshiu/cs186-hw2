@@ -17,6 +17,7 @@
 
 #include "storage/buf_internals.h"
 #include "storage/bufmgr.h"
+#include <string.h>
 
 /*
  * CS186: This variable stores the current replacement policy in
@@ -59,6 +60,7 @@ typedef struct
 
   int LRUBuffer;
   int MRUBuffer;
+  int listCount;
 
 } BufferStrategyControl;
 
@@ -239,26 +241,54 @@ StrategyGetBuffer(BufferAccessStrategy strategy, bool *lock_held)
 		 * above.
 		 */
 		else if (BufferReplacementPolicy == POLICY_LRU)
-		{
+		{			
 		        resultIndex = StrategyControl->LRUBuffer;
 
 			if (resultIndex == -1){
 			        // no unpinned buffers 
-			        UnlockBufHdr(buf);
 			        elog(ERROR, "no unpinned buffers available");
 			}
 
-			volatile BufferDesc *lruBuf = &BufferDescriptors[StrategyControl->LRUBuffer];
-			StrategyControl->LRUBuffer = lruBuf->nextLRUBuffer;
+			volatile BufferDesc *resBuf = &BufferDescriptors[resultIndex];
+
+			
+			while (resBuf->refcount > 0){
+			  volatile BufferDesc *LRUBuf = &BufferDescriptors[StrategyControl->LRUBuffer];
+			  StrategyControl->LRUBuffer = LRUBuf->moreRecentBuffer;
+			  StrategyControl->listCount = StrategyControl->listCount-1;
+
+			  resultIndex = StrategyControl->LRUBuffer;
+
+			  if (resultIndex == -1){
+			    // no unpinned buffers 
+			    elog(ERROR, "no unpinned buffers available");
+			  }
+			  
+			  resBuf = &BufferDescriptors[resultIndex];
+
+			}
+
+			volatile BufferDesc *LRUBuf = &BufferDescriptors[StrategyControl->LRUBuffer];
+			StrategyControl->LRUBuffer = LRUBuf->moreRecentBuffer;
+			StrategyControl->listCount = StrategyControl->listCount-1;
 
 			if (StrategyControl->LRUBuffer == -1){
 			        // Edge case where the list becomes empty.  Must update MRUBuffer as well.
-			        StrategyControl->MRUBuffer = -1;
+			        StrategyControl->MRUBuffer = -1;				
 			}
+			
 		}
 		else if (BufferReplacementPolicy == POLICY_MRU)
 		{
-			elog(ERROR, "MRU unimplemented");
+			resultIndex = StrategyControl->MRUBuffer;
+
+			if (resultIndex == -1){
+			  // no unpinned buffers
+			  elog(ERROR, "no unpinned buffers available");
+			}
+			
+			volatile BufferDesc *resBuf = &BufferDescriptors[resultIndex];
+			
 		}
 		else if (BufferReplacementPolicy == POLICY_2Q)
 		{
@@ -274,6 +304,7 @@ StrategyGetBuffer(BufferAccessStrategy strategy, bool *lock_held)
      * Don't output logs starting with "GRADING" by yourself; they are for grading purposes only.
      */
     elog(LOG, "GRADING: EVICT %2d", resultIndex);  
+    
   }
 
 	if (resultIndex == -1)
@@ -295,6 +326,29 @@ BufferUnpinned(int bufIndex)
 		return;
 
 	/*
+	if (!(StrategyControl->LRUBuffer == -1 && StrategyControl->MRUBuffer == -1)){
+	  //char listStr [200];
+	  //char indexChar [2];
+	  //sprintf(indexChar, "%2d", StrategyControl->LRUBuffer);
+	  //strcat(listStr, indexChar);
+	  elog(LOG, "LIST %2d", StrategyControl->LRUBuffer);
+	
+	  int currBufIndex = StrategyControl->LRUBuffer;
+	  volatile BufferDesc *currBuf = &BufferDescriptors[currBufIndex];
+
+	  while (currBuf->moreRecentBuffer != -1){
+	    //sprintf(indexChar, "%2d", currBuf->moreRecentBuffer);
+	    //strcat(listStr, indexChar);
+	    
+	    elog(LOG, "LIST %2d", currBuf->moreRecentBuffer);
+	    volatile BufferDesc *moreRecentBuf = &BufferDescriptors[currBuf->moreRecentBuffer];
+	    currBuf = moreRecentBuf;
+	  }
+
+	  //elog(LOG, listStr);
+	  }*/
+
+	/*
 	 * CS186 TODO: When this function is called, the specified buffer has
 	 * just been unpinned. That means you can start to manage this buffer 
    * using your buffer replacement policy. You can access the 
@@ -303,21 +357,68 @@ BufferUnpinned(int bufIndex)
 	 */
 	int LRUBufIndex = StrategyControl->LRUBuffer;
 	int MRUBufIndex = StrategyControl->MRUBuffer;
+	volatile BufferDesc *LRUBuf = &BufferDescriptors[LRUBufIndex];
+	//volatile BufferDesc *MRUBuf = &BufferDescriptors[MRUBufIndex];
 	
 	// LRU and MRU Buffer has not yet been initialized
 	if (LRUBufIndex == -1 && MRUBufIndex == -1){
 	  StrategyControl->LRUBuffer = bufIndex;
+	  StrategyControl->listCount = StrategyControl->listCount+1;
+	}
+	// Already at front
+	else if (LRUBufIndex == bufIndex){
+	  if (MRUBufIndex != bufIndex){
+	    StrategyControl->LRUBuffer = LRUBuf->moreRecentBuffer;
+	  
+	    volatile BufferDesc *mruBuf = 
+	      &BufferDescriptors[StrategyControl->MRUBuffer];
+	    mruBuf->moreRecentBuffer = bufIndex;
+	  }
+	  else{
+	    //do nothing
+	  }
+	}
+	// Already at back
+	else if (MRUBufIndex == bufIndex){
+	  // do nothing
 	}
 	// Normal case
 	else{
-	  volatile BufferDesc *mruBuf = 
-	    &BufferDescriptors[StrategyControl->MRUBuffer];
-	  mruBuf->nextLRUBuffer = bufIndex;
+	  int currBufIndex = StrategyControl->LRUBuffer;
+	  volatile BufferDesc *currBuf = &BufferDescriptors[currBufIndex];
+	  bool notFound = true;
+
+	  // Loop through all indexes on the list and see if its already there
+	  while (currBuf->moreRecentBuffer != -1){
+	    volatile BufferDesc *moreRecentBuf = &BufferDescriptors[currBuf->moreRecentBuffer];
+
+	    // if it is, move the pointers
+	    if (currBuf->moreRecentBuffer == bufIndex){
+	      currBuf->moreRecentBuffer = moreRecentBuf->moreRecentBuffer;
+
+	      volatile BufferDesc *mruBuf = 
+		&BufferDescriptors[StrategyControl->MRUBuffer];
+	      mruBuf->moreRecentBuffer = bufIndex;
+
+	      notFound = false;
+	      
+	      break;
+	    }
+	    currBuf = moreRecentBuf;
+	  }
+	  
+	  // if not, then add it to the end
+	  if (notFound){
+	    volatile BufferDesc *mruBuf = 
+		&BufferDescriptors[StrategyControl->MRUBuffer];
+	    mruBuf->moreRecentBuffer = bufIndex;
+	    StrategyControl->listCount = StrategyControl->listCount+1;
+	  }
 	}
 
+	// reset MRUBuffer pointer, set tail to point to -1
 	StrategyControl->MRUBuffer = bufIndex;
-	buf->nextLRUBuffer = -1;
-	
+	buf->moreRecentBuffer = -1;
 
 	LWLockRelease(BufFreelistLock);
 }

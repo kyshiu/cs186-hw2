@@ -148,7 +148,7 @@ typedef struct sbufdesc
 	 * your buffer replacement strategies here.
 	 */
 
-  int nextLRUBuffer;
+  int moreRecentBuffer;
 
 } BufferDesc;
 
