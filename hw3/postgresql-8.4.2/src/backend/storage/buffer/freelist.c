@@ -26,6 +26,7 @@
  */
 int BufferReplacementPolicy;
 
+int NextMRUBufIndex();
 /*
  * CS186: Shared freelist control information. This is a data
  * structure that is kept in shared memory, and holds information used
@@ -289,6 +290,26 @@ StrategyGetBuffer(BufferAccessStrategy strategy, bool *lock_held)
 			
 			volatile BufferDesc *resBuf = &BufferDescriptors[resultIndex];
 			
+			while (resBuf->refcount > 0){
+			  StrategyControl->MRUBuffer = NextMRUBufIndex();
+			  StrategyControl->listCount = StrategyControl->listCount-1;
+			  resultIndex = StrategyControl->MRUBuffer;
+
+			  if (resultIndex == -1){
+			    //no unpinned buffers
+			    elog(ERROR, "no unpinned buffers available");
+			  }
+
+			  resBuf = &BufferDescriptors[resultIndex];
+			}
+			StrategyControl->MRUBuffer = NextMRUBufIndex();
+			StrategyControl->listCount = StrategyControl->listCount-1;
+			
+			if (StrategyControl->MRUBuffer == -1){
+			        // Edge case where the list becomes empty.  Must update LRUBuffer as well.
+			        StrategyControl->LRUBuffer = -1;				
+			}
+			
 		}
 		else if (BufferReplacementPolicy == POLICY_2Q)
 		{
@@ -311,6 +332,28 @@ StrategyGetBuffer(BufferAccessStrategy strategy, bool *lock_held)
 		elog(ERROR, "reached end of StrategyGetBuffer() without selecting a buffer");
 	
 	return &BufferDescriptors[resultIndex];
+}
+
+/*
+ * loops through list to find second to last most recent buffer
+ */
+int
+NextMRUBufIndex(){
+  int MRUBufIndex = StrategyControl->MRUBuffer;
+  if (MRUBufIndex == -1){
+    return -1;
+  }
+  int currBufIndex = StrategyControl->LRUBuffer;
+  volatile BufferDesc *currBuf = &BufferDescriptors[currBufIndex];
+  if (currBuf->moreRecentBuffer == -1){
+    return -1;
+  }
+  
+  while (currBuf->moreRecentBuffer != MRUBufIndex){
+    currBufIndex = currBuf->moreRecentBuffer;
+    currBuf = &BufferDescriptors[currBufIndex];
+  }
+  return currBufIndex;
 }
 
 /*
