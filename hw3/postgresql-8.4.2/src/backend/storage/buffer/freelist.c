@@ -26,6 +26,7 @@
 int BufferReplacementPolicy;
 
 int NextMRUBufIndex();
+void PrintA1Am();
 /*
  * CS186: Shared freelist control information. This is a data
  * structure that is kept in shared memory, and holds information used
@@ -319,6 +320,8 @@ StrategyGetBuffer(BufferAccessStrategy strategy, bool *lock_held)
 		}
 		else if (BufferReplacementPolicy == POLICY_2Q)
 		{
+		        PrintA1Am();
+
 		        // if A1 is at threshold or Am is empty, dequeue from A1
 		        if (StrategyControl->A1Size >= NBuffers/2 || StrategyControl->AmFront == -1){
 			  resultIndex = StrategyControl->A1Front;
@@ -431,6 +434,34 @@ NextMRUBufIndex(){
     currBuf = &BufferDescriptors[currBufIndex];
   }
   return currBufIndex;
+}
+
+void PrintA1Am(){
+  if (StrategyControl->A1Front != -1 && StrategyControl->A1Back != -1){
+    elog(LOG, "A1 Queue %2d", StrategyControl->A1Front);
+	
+    int currBufIndex = StrategyControl->A1Front;
+    volatile BufferDesc *currBuf = &BufferDescriptors[currBufIndex];
+
+    while (currBuf->A1Next != -1){	    
+      elog(LOG, "A1 Queue %2d", currBuf->A1Next);
+      volatile BufferDesc *A1NextBuf = &BufferDescriptors[currBuf->A1Next];
+      currBuf = A1NextBuf;
+    }
+  }
+			
+  if (StrategyControl->AmFront != -1 && StrategyControl->AmBack != -1){
+    elog(LOG, "Am Queue %2d", StrategyControl->AmFront);
+	
+    int mcurrBufIndex = StrategyControl->AmFront;
+    volatile BufferDesc *mcurrBuf = &BufferDescriptors[mcurrBufIndex];
+
+    while (mcurrBuf->AmNext != -1){	    
+      elog(LOG, "Am Queue %2d", mcurrBuf->AmNext);
+      volatile BufferDesc *AmNextBuf = &BufferDescriptors[mcurrBuf->AmNext];
+      mcurrBuf = AmNextBuf;
+    }
+  }
 }
 
 /*
@@ -554,8 +585,12 @@ BufferUnpinned(int bufIndex)
 	int AmBackIndex = StrategyControl->AmBack;
 	volatile BufferDesc *AmFrontBuf = &BufferDescriptors[AmFrontIndex];
 	
+	// check for empty Am queue
+	if (AmFrontIndex == -1){
+	  // do nothing
+	}
 	// already at front of Am
-	if (AmFrontIndex == bufIndex){
+	else if (AmFrontIndex == bufIndex){
 	  // only move if it's not at the back
 	  if (AmBackIndex != bufIndex){
 	    StrategyControl->AmFront = AmFrontBuf->moreRecentBuffer;
@@ -608,12 +643,12 @@ BufferUnpinned(int bufIndex)
 	int A1BackIndex = StrategyControl->A1Back;
 	volatile BufferDesc *A1FrontBuf = &BufferDescriptors[A1FrontIndex];
 
-	if (A1FrontIndex == bufIndex){
+	// check for empty A1 queue
+	if (A1FrontIndex == -1){
+	  // do nothing
+	}
+	else if (A1FrontIndex == bufIndex){
 	  // put on back of Am. take out of A1
-	  volatile BufferDesc *AmBackBuf = 
-	    &BufferDescriptors[StrategyControl->AmBack];
-	  AmBackBuf->AmNext = bufIndex;
-
 	  StrategyControl->A1Front = A1FrontBuf->A1Next;
 
 	  found = true;
@@ -636,10 +671,6 @@ BufferUnpinned(int bufIndex)
 		StrategyControl->A1Back = currBufIndex;
 	      }
 
-	      volatile BufferDesc *AmBackBuf = 
-		&BufferDescriptors[StrategyControl->AmBack];
-	      AmBackBuf->AmNext = bufIndex;
-
 	      found = true;
 	      
 	      break;
@@ -649,11 +680,21 @@ BufferUnpinned(int bufIndex)
 	}
 
 	if (found){
-	// found in A1 check.  need to set AmBack
+	  // found in A1 check.  need to set AmBack
+	  // if Am empty, do special case
+	  if (StrategyControl->AmFront == -1 && StrategyControl->AmBack == -1){
+	    StrategyControl->AmFront = bufIndex;
+	  }
+	  else{
+	    volatile BufferDesc *AmBackBuf = 
+	      &BufferDescriptors[StrategyControl->AmBack];
+	    AmBackBuf->AmNext = bufIndex;
+	  }
+	  
 	  StrategyControl->AmBack = bufIndex;
 	  buf->AmNext = -1;
 	  buf->A1Next = -1;
-	  elog(LOG, "Am ADDING %2d", bufIndex);
+	  //elog(LOG, "Am ADDING %2d", bufIndex);
 
 	  LWLockRelease(BufFreelistLock);
 	  return;
@@ -661,13 +702,22 @@ BufferUnpinned(int bufIndex)
 
 	/* Not in A1 or Am, add to back of A1 */
 	
-	volatile BufferDesc *A1BackBuf = &BufferDescriptors[A1BackIndex];
-	A1BackBuf->A1Next = bufIndex;
+	// check for empty A1
+	if (StrategyControl->A1Front == -1 && StrategyControl->A1Back == -1){
+	  StrategyControl->A1Front = bufIndex;
+	}
+	else{
+	  volatile BufferDesc *A1BackBuf = &BufferDescriptors[A1BackIndex];
+	  A1BackBuf->A1Next = bufIndex;
+	}
+
 	StrategyControl->A1Back = bufIndex;
 	buf->A1Next = -1;
 	StrategyControl->A1Size = StrategyControl->A1Size + 1;
-	elog(LOG, "A1 ADDING %2d", bufIndex);	
+	//elog(LOG, "A1 ADDING %2d", bufIndex);	
 	
+	PrintA1Am();
+
 	LWLockRelease(BufFreelistLock);
 }
 
