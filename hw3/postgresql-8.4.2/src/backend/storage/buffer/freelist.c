@@ -320,7 +320,8 @@ StrategyGetBuffer(BufferAccessStrategy strategy, bool *lock_held)
 		}
 		else if (BufferReplacementPolicy == POLICY_2Q)
 		{
-		        PrintA1Am();
+		  //PrintA1Am();
+		  elog(LOG, "A1 SIZE: %2d", StrategyControl->A1Size);
 
 		        // if A1 is at threshold or Am is empty, dequeue from A1
 		        if (StrategyControl->A1Size >= NBuffers/2 || StrategyControl->AmFront == -1){
@@ -342,7 +343,7 @@ StrategyGetBuffer(BufferAccessStrategy strategy, bool *lock_held)
 
 			    if (resultIndex == -1){
 			      // no unpinned buffers 
-			      elog(ERROR, "no unpinned buffers available");
+			      elog(ERROR, "no unpinned buffers in A1 available");
 			    }
 			  
 			    resBuf = &BufferDescriptors[resultIndex];
@@ -362,11 +363,12 @@ StrategyGetBuffer(BufferAccessStrategy strategy, bool *lock_held)
 		
 			// otherwise dequeue from Am
 			else{
+			  elog(LOG, "Looking in Am");
 			  resultIndex = StrategyControl->AmFront;
 			 
 			  if (resultIndex == -1){
 			    // no unpinned buffers
-			    elog(ERROR, "no unpinned buffers available");
+			    elog(ERROR, "no unpinned buffers in Am available");
 			  }
 			
 			  volatile BufferDesc *resBuf = &BufferDescriptors[resultIndex];			
@@ -693,6 +695,7 @@ BufferUnpinned(int bufIndex)
 	    AmBackBuf->AmNext = bufIndex;
 	  }
 	  
+	  StrategyControl->A1Size = StrategyControl->A1Size-1;
 	  StrategyControl->AmBack = bufIndex;
 	  buf->AmNext = -1;
 	  buf->A1Next = -1;
