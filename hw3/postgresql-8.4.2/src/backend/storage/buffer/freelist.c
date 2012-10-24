@@ -448,9 +448,10 @@ void PrintA1Am(){
       volatile BufferDesc *A1NextBuf = &BufferDescriptors[currBuf->A1Next];
       currBuf = A1NextBuf;
     }
+    elog(LOG, "END A1");
   }
 			
-  if (StrategyControl->AmFront != -1 && StrategyControl->AmBack != -1){
+  if (StrategyControl->AmBack != -1){
     elog(LOG, "Am Queue %2d", StrategyControl->AmFront);
 	
     int mcurrBufIndex = StrategyControl->AmFront;
@@ -461,6 +462,7 @@ void PrintA1Am(){
       volatile BufferDesc *AmNextBuf = &BufferDescriptors[mcurrBuf->AmNext];
       mcurrBuf = AmNextBuf;
     }
+    elog(LOG, "END AM");
   }
 }
 
@@ -593,7 +595,7 @@ BufferUnpinned(int bufIndex)
 	else if (AmFrontIndex == bufIndex){
 	  // only move if it's not at the back
 	  if (AmBackIndex != bufIndex){
-	    StrategyControl->AmFront = AmFrontBuf->moreRecentBuffer;
+	    StrategyControl->AmFront = AmFrontBuf->AmNext;
 	  
 	    volatile BufferDesc *AmBackBuf = 
 	      &BufferDescriptors[StrategyControl->AmBack];
@@ -716,7 +718,7 @@ BufferUnpinned(int bufIndex)
 	StrategyControl->A1Size = StrategyControl->A1Size + 1;
 	//elog(LOG, "A1 ADDING %2d", bufIndex);	
 	
-	PrintA1Am();
+	//PrintA1Am();
 
 	LWLockRelease(BufFreelistLock);
 }
