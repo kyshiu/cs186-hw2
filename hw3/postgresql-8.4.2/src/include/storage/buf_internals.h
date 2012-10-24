@@ -149,6 +149,8 @@ typedef struct sbufdesc
 	 */
 
   int moreRecentBuffer;
+  int AmNext;
+  int A1Next;
 
 } BufferDesc;
 

@@ -17,7 +17,6 @@
 
 #include "storage/buf_internals.h"
 #include "storage/bufmgr.h"
-#include <string.h>
 
 /*
  * CS186: This variable stores the current replacement policy in
@@ -59,10 +58,17 @@ typedef struct
 	 * your buffer replacement strategies here.
 	 */
 
+  // LRU/MRU
   int LRUBuffer;
   int MRUBuffer;
   int listCount;
 
+  // 2Q
+  int AmFront;
+  int AmBack;
+  int A1Front;
+  int A1Back;
+  int A1Size;
 } BufferStrategyControl;
 
 /* Pointers to shared state */
@@ -313,7 +319,78 @@ StrategyGetBuffer(BufferAccessStrategy strategy, bool *lock_held)
 		}
 		else if (BufferReplacementPolicy == POLICY_2Q)
 		{
-			elog(ERROR, "2Q unimplemented");
+		        // if A1 is at threshold or Am is empty, dequeue from A1
+		        if (StrategyControl->A1Size >= NBuffers/2 || StrategyControl->AmFront == -1){
+			  resultIndex = StrategyControl->A1Front;
+			 
+			  if (resultIndex == -1){
+			    // no unpinned buffers
+			    elog(ERROR, "no unpinned buffers available");
+			  }
+			
+			  volatile BufferDesc *resBuf = &BufferDescriptors[resultIndex];			
+			  
+			  while (resBuf->refcount > 0){
+			    volatile BufferDesc *A1FrontBuf = &BufferDescriptors[StrategyControl->A1Front];
+			    StrategyControl->A1Front = A1FrontBuf->A1Next;
+			    StrategyControl->A1Size = StrategyControl->A1Size-1;
+
+			    resultIndex = StrategyControl->A1Front;
+
+			    if (resultIndex == -1){
+			      // no unpinned buffers 
+			      elog(ERROR, "no unpinned buffers available");
+			    }
+			  
+			    resBuf = &BufferDescriptors[resultIndex];
+
+			  }
+
+			  volatile BufferDesc *A1FrontBuf = &BufferDescriptors[StrategyControl->A1Front];
+			  StrategyControl->A1Front = A1FrontBuf->A1Next;
+			  StrategyControl->A1Size = StrategyControl->A1Size-1;
+
+			  if (StrategyControl->A1Front == -1){
+			    // Edge case where the list becomes empty.  Must update A1Back as well.
+			    StrategyControl->A1Back = -1;				
+			  }
+			
+			}
+		
+			// otherwise dequeue from Am
+			else{
+			  resultIndex = StrategyControl->AmFront;
+			 
+			  if (resultIndex == -1){
+			    // no unpinned buffers
+			    elog(ERROR, "no unpinned buffers available");
+			  }
+			
+			  volatile BufferDesc *resBuf = &BufferDescriptors[resultIndex];			
+			  
+			  while (resBuf->refcount > 0){
+			    volatile BufferDesc *AmFrontBuf = &BufferDescriptors[StrategyControl->AmFront];
+			    StrategyControl->AmFront = AmFrontBuf->AmNext;
+
+			    resultIndex = StrategyControl->AmFront;
+
+			    if (resultIndex == -1){
+			      // no unpinned buffers 
+			      elog(ERROR, "no unpinned buffers available");
+			    }
+			  
+			    resBuf = &BufferDescriptors[resultIndex];
+
+			  }
+
+			  volatile BufferDesc *AmFrontBuf = &BufferDescriptors[StrategyControl->AmFront];
+			  StrategyControl->AmFront = AmFrontBuf->AmNext;			  
+
+			  if (StrategyControl->AmFront == -1){
+			    // Edge case where the list becomes empty.  Must update AmBack as well.
+			    StrategyControl->AmBack = -1;				
+			  }
+			}  
 		}
 		else
 		{
@@ -398,6 +475,11 @@ BufferUnpinned(int bufIndex)
    * StrategyControl global variable from inside this function.
    * This function was added by the GSIs.
 	 */
+
+	/* for LRU and MRU 
+	 * 2Q needs similar functionality, but we will just replicate that functionality 
+	 * as well as keeping track of this separately
+	 */
 	int LRUBufIndex = StrategyControl->LRUBuffer;
 	int MRUBufIndex = StrategyControl->MRUBuffer;
 	volatile BufferDesc *LRUBuf = &BufferDescriptors[LRUBufIndex];
@@ -416,9 +498,6 @@ BufferUnpinned(int bufIndex)
 	    volatile BufferDesc *mruBuf = 
 	      &BufferDescriptors[StrategyControl->MRUBuffer];
 	    mruBuf->moreRecentBuffer = bufIndex;
-	  }
-	  else{
-	    //do nothing
 	  }
 	}
 	// Already at back
@@ -463,6 +542,132 @@ BufferUnpinned(int bufIndex)
 	StrategyControl->MRUBuffer = bufIndex;
 	buf->moreRecentBuffer = -1;
 
+	
+	/* 2Q 
+	 * first check Am queue, then A1
+	 */
+	
+	bool found = false;
+
+	/* Am queue management */
+	int AmFrontIndex = StrategyControl->AmFront;
+	int AmBackIndex = StrategyControl->AmBack;
+	volatile BufferDesc *AmFrontBuf = &BufferDescriptors[AmFrontIndex];
+	
+	// already at front of Am
+	if (AmFrontIndex == bufIndex){
+	  // only move if it's not at the back
+	  if (AmBackIndex != bufIndex){
+	    StrategyControl->AmFront = AmFrontBuf->moreRecentBuffer;
+	  
+	    volatile BufferDesc *AmBackBuf = 
+	      &BufferDescriptors[StrategyControl->AmBack];
+	    AmBackBuf->AmNext = bufIndex;
+	  }
+	  found = true;
+	}
+	// already at back
+	else if (AmBackIndex == bufIndex){
+	  // do nothing
+	  found = true;
+	}
+	else{
+	  int currBufIndex = StrategyControl->AmFront;
+	  volatile BufferDesc *currBuf = &BufferDescriptors[currBufIndex];
+
+	  // Loop through all indexes on the list and see if its already there
+	  while (currBuf->AmNext != -1){
+	    volatile BufferDesc *AmNextBuf = &BufferDescriptors[currBuf->AmNext];
+
+	    // if it is, move the pointers
+	    if (currBuf->AmNext == bufIndex){
+	      currBuf->AmNext = AmNextBuf->AmNext;
+
+	      volatile BufferDesc *AmBackBuf = 
+		&BufferDescriptors[StrategyControl->AmBack];
+	      AmBackBuf->AmNext = bufIndex;
+
+	      found = true;
+	      
+	      break;
+	    }
+	    currBuf = AmNextBuf;
+	  }
+	}
+
+	if (found){
+	// found in Am check.  need to set AmBack
+	  StrategyControl->AmBack = bufIndex;
+	  buf->AmNext = -1;
+	  LWLockRelease(BufFreelistLock);
+	  return;
+	}
+	/* A1 management */
+	
+	int A1FrontIndex = StrategyControl->A1Front;
+	int A1BackIndex = StrategyControl->A1Back;
+	volatile BufferDesc *A1FrontBuf = &BufferDescriptors[A1FrontIndex];
+
+	if (A1FrontIndex == bufIndex){
+	  // put on back of Am. take out of A1
+	  volatile BufferDesc *AmBackBuf = 
+	    &BufferDescriptors[StrategyControl->AmBack];
+	  AmBackBuf->AmNext = bufIndex;
+
+	  StrategyControl->A1Front = A1FrontBuf->A1Next;
+
+	  found = true;
+	}
+	// try to find in A1
+	else{
+	  int currBufIndex = StrategyControl->A1Front;
+	  volatile BufferDesc *currBuf = &BufferDescriptors[currBufIndex];
+
+	  // Loop through all indexes on the list and see if its already there
+	  while (currBuf->A1Next != -1){
+	    volatile BufferDesc *A1NextBuf = &BufferDescriptors[currBuf->A1Next];
+
+	    // if it is, move the pointers
+	    if (currBuf->A1Next == bufIndex){
+	      currBuf->A1Next = A1NextBuf->A1Next;
+
+	      // if it was the back, also change A1Back
+	      if (StrategyControl->A1Back == bufIndex){
+		StrategyControl->A1Back = currBufIndex;
+	      }
+
+	      volatile BufferDesc *AmBackBuf = 
+		&BufferDescriptors[StrategyControl->AmBack];
+	      AmBackBuf->AmNext = bufIndex;
+
+	      found = true;
+	      
+	      break;
+	    }
+	    currBuf = A1NextBuf;
+	  }
+	}
+
+	if (found){
+	// found in A1 check.  need to set AmBack
+	  StrategyControl->AmBack = bufIndex;
+	  buf->AmNext = -1;
+	  buf->A1Next = -1;
+	  elog(LOG, "Am ADDING %2d", bufIndex);
+
+	  LWLockRelease(BufFreelistLock);
+	  return;
+	}
+
+	/* Not in A1 or Am, add to back of A1 */
+	
+	volatile BufferDesc *A1BackBuf = &BufferDescriptors[A1BackIndex];
+	A1BackBuf->A1Next = bufIndex;
+	StrategyControl->A1Back = bufIndex;
+	buf->A1Next = -1;
+	StrategyControl->A1Size = StrategyControl->A1Size + 1;
+	elog(LOG, "A1 ADDING %2d", bufIndex);	
+	
 	LWLockRelease(BufFreelistLock);
 }
 
@@ -598,6 +803,13 @@ StrategyInitialize(bool init)
 		/* CS186 TODO: Initialize any data you added to StrategyControlData here */
 		StrategyControl->LRUBuffer = -1;
 		StrategyControl->MRUBuffer = -1;
+		StrategyControl->listCount = 0;
+
+		StrategyControl->A1Front = -1;
+		StrategyControl->A1Back = -1;
+		StrategyControl->AmFront = -1;
+		StrategyControl->AmBack = -1;
+		StrategyControl->A1Size = -1;
 	}
 	else
 		Assert(!init);
