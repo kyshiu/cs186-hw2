@@ -333,8 +333,24 @@ StrategyGetBuffer(BufferAccessStrategy strategy, bool *lock_held)
 		else if (BufferReplacementPolicy == POLICY_2Q)
 		{
 		  //PrintA1Am();
+		  bool AmUnusable = (AmAllPinned() || StrategyControl->AmFront == -1);
+		  bool useA1 = (!A1AllPinned()) && (StrategyControl->A1Size >= NBuffers/2 || AmUnusable);
+
+		  // if Am is unusable and we can't use A1, then there are no unpinned buffers
+		  if (AmUnusable && !useA1){
+		    elog(ERROR, "no unpinned buffers available");
+		  }
+
+		  if (useA1){
+		    resultIndex = PopUnpinnedA1();
+		  }
+		  else{
+		    resultIndex = PopUnpinnedAm();
+		  }
+		  
 		  elog(LOG, "A1 SIZE: %2d", StrategyControl->A1Size);
 
+		  /*
 		        // if A1 is at threshold or Am is empty, dequeue from A1
 		        if (StrategyControl->A1Size >= NBuffers/2 || StrategyControl->AmFront == -1){
 			  resultIndex = StrategyControl->A1Front;
@@ -411,7 +427,8 @@ StrategyGetBuffer(BufferAccessStrategy strategy, bool *lock_held)
 			    // Edge case where the list becomes empty.  Must update AmBack as well.
 			    StrategyControl->AmBack = -1;				
 			  }
-			}  
+			}
+		  */  
 		}
 		else
 		{
@@ -522,6 +539,7 @@ PushA1(int bufIndex){
   StrategyControl->A1Back = bufIndex;
   volatile BufferDesc *buf = &BufferDescriptors[bufIndex];
   buf->A1Next = -1;
+  StrategyControl->A1Size = StrategyControl->A1Size+1;
 }
 
 // only called if you confirmed bufIndex exists in A1
@@ -910,14 +928,29 @@ BufferUnpinned(int bufIndex)
 	buf->moreRecentBuffer = -1;
 
 	
-	/* 2Q 
+	/* 
+	 *  2Q 
 	 * first check Am queue, then A1
 	 */
+
+	if (FindInAm(bufIndex)){
+	  RemoveFromAm(bufIndex);
+	  PushAm(bufIndex);
+	}
+	else if (FindInA1(bufIndex)){
+	  RemoveFromA1(bufIndex);
+	  PushAm(bufIndex);
+	}
+	else{
+	  PushA1(bufIndex);
+	}
 	
+	/*
 	bool found = false;
 
 	/* Am queue management */
-	int AmFrontIndex = StrategyControl->AmFront;
+	
+	/*int AmFrontIndex = StrategyControl->AmFront;
 	int AmBackIndex = StrategyControl->AmBack;
 	volatile BufferDesc *AmFrontBuf = &BufferDescriptors[AmFrontIndex];
 	
@@ -976,7 +1009,7 @@ BufferUnpinned(int bufIndex)
 	}
 	/* A1 management */
 	
-	int A1FrontIndex = StrategyControl->A1Front;
+	/*int A1FrontIndex = StrategyControl->A1Front;
 	int A1BackIndex = StrategyControl->A1Back;
 	volatile BufferDesc *A1FrontBuf = &BufferDescriptors[A1FrontIndex];
 
@@ -1044,7 +1077,8 @@ BufferUnpinned(int bufIndex)
 	/* Not in A1 or Am, add to back of A1 */
 	
 	// check for empty A1
-	if (StrategyControl->A1Front == -1 && StrategyControl->A1Back == -1){
+	
+	/*if (StrategyControl->A1Front == -1 && StrategyControl->A1Back == -1){
 	  StrategyControl->A1Front = bufIndex;
 	}
 	else{
@@ -1055,9 +1089,10 @@ BufferUnpinned(int bufIndex)
 	StrategyControl->A1Back = bufIndex;
 	buf->A1Next = -1;
 	StrategyControl->A1Size = StrategyControl->A1Size + 1;
-	//elog(LOG, "A1 ADDING %2d", bufIndex);	
+	//elog(LOG, "A1 ADDING %2d", bufIndex);
 	
 	//PrintA1Am();
+	*/
 
 	LWLockRelease(BufFreelistLock);
 }
