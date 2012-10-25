@@ -27,6 +27,19 @@ int BufferReplacementPolicy;
 
 int NextMRUBufIndex();
 void PrintA1Am();
+
+bool FindInA1(int);
+void PushA1(int);
+void RemoveFromA1(int);
+int PopUnpinnedA1();
+bool A1AllPinned();
+
+bool FindInAm(int);
+void PushAm(int);
+void RemoveFromAm(int);
+int PopUnpinnedAm();
+bool AmAllPinned();
+
 /*
  * CS186: Shared freelist control information. This is a data
  * structure that is kept in shared memory, and holds information used
@@ -258,7 +271,6 @@ StrategyGetBuffer(BufferAccessStrategy strategy, bool *lock_held)
 			}
 
 			volatile BufferDesc *resBuf = &BufferDescriptors[resultIndex];
-
 			
 			while (resBuf->refcount > 0){
 			  volatile BufferDesc *LRUBuf = &BufferDescriptors[StrategyControl->LRUBuffer];
@@ -333,13 +345,15 @@ StrategyGetBuffer(BufferAccessStrategy strategy, bool *lock_held)
 			  }
 			
 			  volatile BufferDesc *resBuf = &BufferDescriptors[resultIndex];			
+			  bool usingFirst = true;
 			  
 			  while (resBuf->refcount > 0){
-			    volatile BufferDesc *A1FrontBuf = &BufferDescriptors[StrategyControl->A1Front];
-			    StrategyControl->A1Front = A1FrontBuf->A1Next;
-			    StrategyControl->A1Size = StrategyControl->A1Size-1;
+			    usingFirst = false;
+			    //volatile BufferDesc *A1FrontBuf = &BufferDescriptors[StrategyControl->A1Front];
+			    //StrategyControl->A1Front = A1FrontBuf->A1Next;
+			    //StrategyControl->A1Size = StrategyControl->A1Size-1;
 
-			    resultIndex = StrategyControl->A1Front;
+			    resultIndex = resBuf->A1Next;
 
 			    if (resultIndex == -1){
 			      // no unpinned buffers 
@@ -350,8 +364,10 @@ StrategyGetBuffer(BufferAccessStrategy strategy, bool *lock_held)
 
 			  }
 
-			  volatile BufferDesc *A1FrontBuf = &BufferDescriptors[StrategyControl->A1Front];
-			  StrategyControl->A1Front = A1FrontBuf->A1Next;
+			  if (usingFirst){
+			    volatile BufferDesc *A1FrontBuf = &BufferDescriptors[StrategyControl->A1Front];
+			    StrategyControl->A1Front = A1FrontBuf->A1Next;
+			  }
 			  StrategyControl->A1Size = StrategyControl->A1Size-1;
 
 			  if (StrategyControl->A1Front == -1){
@@ -467,6 +483,322 @@ void PrintA1Am(){
     elog(LOG, "END AM");
   }
 }
+
+bool 
+FindInA1(int bufIndex){
+  // check for empty
+  if (StrategyControl->A1Front == -1){
+    return false;
+  }
+  // check front
+  else if (StrategyControl->A1Front == bufIndex){
+    return true;
+  }
+  // check all others
+  else{
+    volatile BufferDesc *currBuf = &BufferDescriptors[StrategyControl->A1Front];
+    while(currBuf->A1Next != -1){
+      if (currBuf->A1Next == bufIndex){
+	return true;
+      }
+      currBuf = &BufferDescriptors[currBuf->A1Next];
+    }
+  }
+  // couldn't find
+  return false;
+}
+
+void 
+PushA1(int bufIndex){
+  // check for empty
+  if (StrategyControl->A1Front == -1){
+    StrategyControl->A1Front = bufIndex;
+  }
+  // normal case
+  else {
+    volatile BufferDesc *A1BackBuf = &BufferDescriptors[StrategyControl->A1Back];
+    A1BackBuf->A1Next = bufIndex;
+  }
+  StrategyControl->A1Back = bufIndex;
+  volatile BufferDesc *buf = &BufferDescriptors[bufIndex];
+  buf->A1Next = -1;
+}
+
+// only called if you confirmed bufIndex exists in A1
+void 
+RemoveFromA1(int bufIndex){
+  volatile BufferDesc *buf = &BufferDescriptors[bufIndex];
+
+  // reposition A1 pointers
+
+  // check front
+  if (StrategyControl->A1Front == bufIndex){
+    StrategyControl->A1Front = buf->A1Next;
+    // if we emptied A1, let the A1Back know
+    if (StrategyControl->A1Front == -1){
+      StrategyControl->A1Back = -1;
+    }
+  }
+
+  // check rest
+  else{
+    int currBufIndex = StrategyControl->A1Front;
+    volatile BufferDesc *currBuf = &BufferDescriptors[StrategyControl->A1Front];
+
+    while(currBuf->A1Next != -1){
+      volatile BufferDesc *NextBuf = &BufferDescriptors[currBuf->A1Next];
+
+      if (currBuf->A1Next == bufIndex){
+	// set curr next to point to next next.  skip over buf
+	currBuf->A1Next = NextBuf->A1Next;
+
+	if (StrategyControl->A1Back == bufIndex){
+	  // if we remove the back, we must adjust the back pointer
+	  StrategyControl->A1Back = currBufIndex;
+	}
+
+      }
+
+      currBufIndex = currBuf->A1Next;
+      currBuf = &BufferDescriptors[currBuf->A1Next];
+    }
+  }
+
+  // disconnect buf from A1
+  buf->A1Next = -1;
+  StrategyControl->A1Size = StrategyControl->A1Size-1;
+}
+
+// only use after making sure there is an unpinned buffer in A1
+int 
+PopUnpinnedA1(){
+  // try front
+  int currBufIndex = StrategyControl->A1Front;
+  volatile BufferDesc *currBuf = &BufferDescriptors[currBufIndex];
+  LockBufHdr(currBuf);
+  if (currBuf->refcount == 0){
+    RemoveFromA1(currBufIndex);
+
+    UnlockBufHdr(currBuf);
+    return currBufIndex;
+  }
+  // try rest
+  else{
+    UnlockBufHdr(currBuf);
+
+    while(currBuf->A1Next != -1){
+      int nextIndex = currBuf->A1Next;
+      volatile BufferDesc *NextBuf = &BufferDescriptors[nextIndex];
+      LockBufHdr(NextBuf);
+
+      if(NextBuf->refcount == 0){
+	RemoveFromA1(nextIndex);
+
+	UnlockBufHdr(NextBuf);
+	return nextIndex;
+      }
+      
+      UnlockBufHdr(NextBuf);
+      currBuf = NextBuf;
+    }
+  }
+
+}
+
+bool 
+A1AllPinned(){
+  // check empty
+  if(StrategyControl->A1Front == -1){
+    return true;
+  }
+
+  int currBufIndex = StrategyControl->A1Front;
+  volatile BufferDesc *currBuf = &BufferDescriptors[currBufIndex];
+
+  // check front
+  LockBufHdr(currBuf);
+  if (currBuf->refcount != 0){
+    UnlockBufHdr(currBuf);
+    return false;
+  }
+  UnlockBufHdr(currBuf);
+  
+  //check rest
+  while (currBuf->A1Next != -1){
+    int NextIndex = currBuf->A1Next;
+    volatile BufferDesc *NextBuf = &BufferDescriptors[NextIndex];
+
+    LockBufHdr(NextBuf);
+    if (NextBuf->refcount == 0){
+      UnlockBufHdr(NextBuf);
+      return false;
+    }
+    UnlockBufHdr(NextBuf);
+    
+    currBuf = NextBuf;
+  }
+  
+  // didn't find unpinned, so all are pinned
+  return true;
+}
+
+bool 
+FindInAm(int bufIndex){
+  // check empty
+  if (StrategyControl->AmFront == -1){
+    return false;
+  }
+
+  // check front
+  if (StrategyControl->AmFront == bufIndex){
+    return true;
+  }
+
+  //check rest
+  int currBufIndex = StrategyControl->AmFront;
+  volatile BufferDesc* currBuf = &BufferDescriptors[currBufIndex];
+  
+  while (currBuf->AmNext != -1){
+    int NextIndex = currBuf->AmNext;
+    volatile BufferDesc* NextBuf = &BufferDescriptors[NextIndex];
+
+    if (NextIndex == bufIndex){
+      return true;
+    }
+    
+    currBuf = NextBuf;
+  }
+  
+  // couldn't find
+  return false;
+}
+
+void 
+PushAm(int bufIndex){
+  // check empty
+  if (StrategyControl->AmFront == -1){
+    StrategyControl->AmFront = bufIndex;
+  }
+  // normal case
+  else{
+    volatile BufferDesc* BackBuf = &BufferDescriptors[StrategyControl->AmBack];
+    BackBuf->AmNext = bufIndex;
+  }
+  StrategyControl->AmBack = bufIndex;
+  volatile BufferDesc* buf = &BufferDescriptors[bufIndex];
+  buf->AmNext = -1;
+}
+
+// assumes you already checked that bufIndex is in Am
+void 
+RemoveFromAm(int bufIndex){
+  //check front, reassign front pointer
+  if (StrategyControl->AmFront == bufIndex){
+    volatile BufferDesc* FrontBuf = &BufferDescriptors[StrategyControl->AmFront];
+    StrategyControl->AmFront = FrontBuf->AmNext;
+
+    // if we emptied Am, let AmBack know
+    if (StrategyControl->AmFront == -1){
+      StrategyControl->AmBack = -1;
+    }
+  }
+  // check rest, skip over bufIndex when found
+  else{
+    int currBufIndex = StrategyControl->AmFront;
+    volatile BufferDesc* currBuf = &BufferDescriptors[currBufIndex];
+
+    while(currBuf->AmNext != -1){
+      int NextIndex = currBuf->AmNext;
+      volatile BufferDesc* NextBuf = &BufferDescriptors[NextIndex];
+      
+      if (NextIndex == bufIndex){
+	currBuf->AmNext = NextBuf->AmNext;
+	
+	// special case for Back, want to set to the one before bufIndex
+	if(StrategyControl->AmBack == bufIndex){
+	  StrategyControl->AmBack = currBufIndex;
+	}
+      }
+      
+      currBufIndex = NextIndex;
+      currBuf = NextBuf;
+    }
+  }
+
+  // separate bufIndex from Am
+  volatile BufferDesc* buf = &BufferDescriptors[bufIndex];
+  buf->AmNext = -1;
+}
+
+// return first unpinned buffer. assumes you already checked that there is an unpinned buffer
+int
+PopUnpinnedAm(){
+  int currBufIndex = StrategyControl->AmFront;
+  volatile BufferDesc* currBuf = &BufferDescriptors[currBufIndex];
+  
+  // check front
+  LockBufHdr(currBuf);
+  if (currBuf->refcount == 0){
+    RemoveFromAm(currBufIndex);
+    UnlockBufHdr(currBuf);
+    return currBufIndex;
+  }
+  UnlockBufHdr(currBuf);
+
+  // check rest
+  while(currBuf->AmNext != -1){
+    int NextIndex = currBuf->AmNext;
+    volatile BufferDesc* NextBuf = &BufferDescriptors[NextIndex];
+    LockBufHdr(NextBuf);
+
+    if(NextBuf->refcount == 0){
+      RemoveFromAm(NextIndex);
+      
+      UnlockBufHdr(NextBuf);
+      return NextIndex;
+    }
+    
+    UnlockBufHdr(NextBuf);
+    currBuf = NextBuf;
+  }
+}
+
+bool 
+AmAllPinned(){
+  // check empty
+  if (StrategyControl->AmFront == -1){
+    return true;
+  }
+
+  // check front
+  int currBufIndex = StrategyControl->AmFront;
+  volatile BufferDesc* currBuf = &BufferDescriptors[currBufIndex];
+  LockBufHdr(currBuf);
+  if (currBuf->refcount == 0){
+    UnlockBufHdr(currBuf);
+    return false;
+  }
+  UnlockBufHdr(currBuf);
+
+  // check rest
+  while(currBuf->AmNext != -1){
+    int NextIndex = currBuf->AmNext;
+    volatile BufferDesc* NextBuf = &BufferDescriptors[NextIndex];
+
+    LockBufHdr(NextBuf);
+    if (NextBuf->refcount == 0){
+      UnlockBufHdr(NextBuf);
+      return false;
+    }
+    
+    UnlockBufHdr(NextBuf);
+    currBuf = NextBuf;
+  }
+
+  // couldn't find unpinned, everything is pinned
+  return true;
+}
+
 
 /*
  * CS186: Called when the specified buffer is unpinned and becomes
@@ -638,6 +970,7 @@ BufferUnpinned(int bufIndex)
 	// found in Am check.  need to set AmBack
 	  StrategyControl->AmBack = bufIndex;
 	  buf->AmNext = -1;
+	  buf->A1Next = -1;
 	  LWLockRelease(BufFreelistLock);
 	  return;
 	}
@@ -651,6 +984,7 @@ BufferUnpinned(int bufIndex)
 	if (A1FrontIndex == -1){
 	  // do nothing
 	}
+	// already at front
 	else if (A1FrontIndex == bufIndex){
 	  // put on back of Am. take out of A1
 	  StrategyControl->A1Front = A1FrontBuf->A1Next;
@@ -673,6 +1007,8 @@ BufferUnpinned(int bufIndex)
 	      // if it was the back, also change A1Back
 	      if (StrategyControl->A1Back == bufIndex){
 		StrategyControl->A1Back = currBufIndex;
+		volatile BufferDesc *A1BackBuf = &BufferDescriptors[StrategyControl->A1Back];
+		A1BackBuf->A1Next = -1;
 	      }
 
 	      found = true;
@@ -712,7 +1048,7 @@ BufferUnpinned(int bufIndex)
 	  StrategyControl->A1Front = bufIndex;
 	}
 	else{
-	  volatile BufferDesc *A1BackBuf = &BufferDescriptors[A1BackIndex];
+	  volatile BufferDesc *A1BackBuf = &BufferDescriptors[StrategyControl->A1Back];
 	  A1BackBuf->A1Next = bufIndex;
 	}
 
@@ -864,7 +1200,7 @@ StrategyInitialize(bool init)
 		StrategyControl->A1Back = -1;
 		StrategyControl->AmFront = -1;
 		StrategyControl->AmBack = -1;
-		StrategyControl->A1Size = -1;
+		StrategyControl->A1Size = 0;
 	}
 	else
 		Assert(!init);
